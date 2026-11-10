@@ -133,9 +133,9 @@ STRICT RULES
 - This is an estimated ATS-style evaluation, not an official ATS score.
 
 RESUME TEXT:
-\"\"\"
+--- RESUME START ---
 {resume_text[:MAX_RESUME_CHARS]}
-\"\"\"
+--- RESUME END ---
 """ + JSON_FORMAT
 
 
