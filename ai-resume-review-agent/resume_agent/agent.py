@@ -61,6 +61,40 @@ def _rubric_text() -> str:
     return "\n".join(lines)
 
 
+JSON_FORMAT = """
+OUTPUT FORMAT
+Return ONLY one valid JSON object. No markdown, no code fences, no text before or after it.
+Do NOT call any tools or functions. Write the JSON directly as your answer, using exactly these keys:
+{
+  "candidate_name": "string or null",
+  "target_role": "string",
+  "category_scores": {
+    "skills_relevance": {"score": 0, "explanation": "string"},
+    "work_experience": {"score": 0, "explanation": "string"},
+    "education": {"score": 0, "explanation": "string"},
+    "ats_formatting": {"score": 0, "explanation": "string"},
+    "professional_summary": {"score": 0, "explanation": "string"},
+    "achievements": {"score": 0, "explanation": "string"},
+    "grammar_clarity": {"score": 0, "explanation": "string"}
+  },
+  "section_analysis": [{"section": "string", "status": "Strong|Adequate|Weak|Missing", "feedback": "string"}],
+  "strengths": ["string"],
+  "weaknesses": ["string"],
+  "missing_information": ["string"],
+  "matching_skills": ["string"],
+  "missing_skills": ["string"],
+  "suggested_skills": ["string"],
+  "rewritten_bullets": [{"original": "string", "improved": "string", "note": "string"}],
+  "improved_summary": "string",
+  "recommended_certifications": ["string"],
+  "education_suggestions": ["string"],
+  "experience_suggestions": ["string"],
+  "job_specific_recommendations": ["string"],
+  "action_plan": ["string"]
+}
+"""
+
+
 def build_task_description(resume_text: str, job_title: str, job_description: str) -> str:
     has_jd = bool(job_description.strip())
     jd_block = (
@@ -102,7 +136,7 @@ RESUME TEXT:
 \"\"\"
 {resume_text[:MAX_RESUME_CHARS]}
 \"\"\"
-"""
+""" + JSON_FORMAT
 
 
 def _parse_fallback(raw: str) -> ResumeReview:
@@ -134,40 +168,3 @@ def review_resume(
     job_title: str,
     job_description: str,
     api_key: str,
-    model: str = DEFAULT_MODEL,
-) -> ResumeReview:
-    """Run the single agent on the single task and return a validated ResumeReview."""
-    if not api_key:
-        raise ReviewError("Please provide your Groq API key.")
-
-    try:
-        llm = build_llm(api_key, model)
-        agent = build_agent(llm)
-        task = Task(
-            description=build_task_description(resume_text, job_title, job_description),
-            expected_output="A complete, structured resume review that matches the required schema.",
-            agent=agent,
-            output_pydantic=ResumeReview,
-        )
-        crew = Crew(
-            agents=[agent],
-            tasks=[task],
-            process=Process.sequential,
-            memory=False,
-            verbose=False,
-        )
-        result = crew.kickoff()
-    except ReviewError:
-        raise
-    except Exception as exc:
-        raise ReviewError(_friendly_error(exc)) from exc
-
-    parsed = getattr(result, "pydantic", None)
-    if isinstance(parsed, ResumeReview):
-        review = parsed
-    else:
-        review = _parse_fallback(getattr(result, "raw", "") or str(result))
-
-    if not review.target_role:
-        review.target_role = job_title.strip()
-    return review
