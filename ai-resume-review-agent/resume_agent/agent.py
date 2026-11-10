@@ -1,3 +1,4 @@
+
 """The single CrewAI agent + its single review task."""
 import os
 
@@ -140,7 +141,7 @@ RESUME TEXT:
 
 
 def _parse_fallback(raw: str) -> ResumeReview:
-    """If CrewAI could not build the Pydantic object, try to parse the raw JSON ourselves."""
+    """Find the JSON object in the model's answer and validate it with Pydantic."""
     start, end = raw.find("{"), raw.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ReviewError("The AI did not return a structured result. Please try again.")
@@ -168,3 +169,35 @@ def review_resume(
     job_title: str,
     job_description: str,
     api_key: str,
+    model: str = DEFAULT_MODEL,
+) -> ResumeReview:
+    """Run the single agent on the single task and return a validated ResumeReview."""
+    if not api_key:
+        raise ReviewError("Please provide your Groq API key.")
+
+    try:
+        llm = build_llm(api_key, model)
+        agent = build_agent(llm)
+        task = Task(
+            description=build_task_description(resume_text, job_title, job_description),
+            expected_output="One valid JSON object containing the complete resume review, with no extra text.",
+            agent=agent,
+        )
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            memory=False,
+            verbose=False,
+        )
+        result = crew.kickoff()
+    except ReviewError:
+        raise
+    except Exception as exc:
+        raise ReviewError(_friendly_error(exc)) from exc
+
+    review = _parse_fallback(getattr(result, "raw", "") or str(result))
+
+    if not review.target_role:
+        review.target_role = job_title.strip()
+    return review
