@@ -17,7 +17,53 @@ from .config import (  # noqa: E402
     MAX_RESUME_CHARS,
     SCORE_RUBRIC,
 )
-from .schemas import ResumeReview  # noqa: E402
+from .schemas import ResumeReview  # noqa: E402         # --------------------------------------------------------------------------
+# Compatibility fix for Groq.
+# Newer CrewAI versions add an extra "cache_breakpoint" key to messages.
+# Groq rejects unknown keys, so we remove them just before the request is sent.
+# --------------------------------------------------------------------------
+_UNSUPPORTED_MESSAGE_KEYS = ("cache_breakpoint",)
+_UNSUPPORTED_KWARGS = ("is_litellm",)
+
+
+def _clean_kwargs(kwargs: dict) -> dict:
+    messages = kwargs.get("messages")
+    if isinstance(messages, list):
+        kwargs["messages"] = [
+            {k: v for k, v in m.items() if k not in _UNSUPPORTED_MESSAGE_KEYS} if isinstance(m, dict) else m
+            for m in messages
+        ]
+    for key in _UNSUPPORTED_KWARGS:
+        kwargs.pop(key, None)
+    return kwargs
+
+
+def _install_groq_compat_patch() -> None:
+    try:
+        import litellm
+    except ImportError:
+        return
+
+    if not getattr(litellm.completion, "_groq_compat", False):
+        _original_completion = litellm.completion
+
+        def _patched_completion(*args, **kwargs):
+            return _original_completion(*args, **_clean_kwargs(kwargs))
+
+        _patched_completion._groq_compat = True
+        litellm.completion = _patched_completion
+
+    if not getattr(litellm.acompletion, "_groq_compat", False):
+        _original_acompletion = litellm.acompletion
+
+        async def _patched_acompletion(*args, **kwargs):
+            return await _original_acompletion(*args, **_clean_kwargs(kwargs))
+
+        _patched_acompletion._groq_compat = True
+        litellm.acompletion = _patched_acompletion
+
+
+_install_groq_compat_patch()
 
 
 class ReviewError(Exception):
